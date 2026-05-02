@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Resolve safe executable commands through `shutil.which()` before running them, fixing Windows `.cmd` launch failures such as `npm test`.
+
 ## 0.1.0
 
 - Add `speckit.discovery-validation-hooks.discover` with `speckit.discover` alias.

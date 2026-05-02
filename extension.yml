@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "discovery-validation-hooks"
   name: "Discovery and Validation Hooks"
-  version: "0.1.0"
+  version: "0.1.1"
   description: "Repository-grounded discovery and validation commands for Spec Kit phases."
   author: "MORI ISSEI"
   repository: "https://github.com/stockedge/spec-kit-discovery-validation-hooks"

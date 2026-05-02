@@ -48,9 +48,15 @@ class CommandResult:
 
 
 def run(args: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
+    command = args[:]
+    if command and not Path(command[0]).is_absolute():
+        resolved = shutil.which(command[0])
+        if resolved:
+            command[0] = resolved
+
     try:
         completed = subprocess.run(
-            args,
+            command,
             cwd=cwd,
             text=True,
             capture_output=True,
@@ -551,4 +557,3 @@ def main(argv: Iterable[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
