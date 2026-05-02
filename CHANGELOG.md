@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Treat blocking `HIGH` findings as `FAIL`, including missing referenced files, failed executable checks, missing implementation changes, and requirement coverage gaps.
+
 ## 0.1.1
 
 - Resolve safe executable commands through `shutil.which()` before running them, fixing Windows `.cmd` launch failures such as `npm test`.

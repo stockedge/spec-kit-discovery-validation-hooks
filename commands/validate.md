@@ -166,7 +166,7 @@ Use this severity model:
 
 ## Verdict
 
-- `FAIL`: Any `CRITICAL` finding, or multiple `HIGH` findings that block the next phase.
+- `FAIL`: Any `CRITICAL` finding, any blocking `HIGH` finding, or multiple `HIGH` findings that block the next phase.
 - `PASS_WITH_WARNINGS`: No blocking issue, but at least one meaningful risk remains.
 - `PASS`: No material repository compatibility or artifact quality issue found.
 

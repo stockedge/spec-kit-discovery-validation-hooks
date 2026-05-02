@@ -23,6 +23,13 @@ from typing import Iterable
 
 
 SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+BLOCKING_HIGH_CATEGORIES = {
+    "Artifacts",
+    "Executable checks",
+    "Implementation",
+    "Referenced files",
+    "Requirement coverage",
+}
 PATH_TOKEN = re.compile(
     r"(?:`([^`\n]+\.[A-Za-z0-9][^`\n]*)`)|"
     r"(?<![\w/.-])([A-Za-z0-9_./\\-]+/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_./\\-]+)"
@@ -430,6 +437,8 @@ def validate(root: Path, phase: str) -> str:
 
     verdict = "PASS"
     if any(f.severity == "CRITICAL" for f in findings):
+        verdict = "FAIL"
+    elif any(f.severity == "HIGH" and f.category in BLOCKING_HIGH_CATEGORIES for f in findings):
         verdict = "FAIL"
     elif sum(1 for f in findings if f.severity == "HIGH") >= 2:
         verdict = "FAIL"
