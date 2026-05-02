@@ -3,11 +3,12 @@
 Repository-grounded discovery and validation commands for GitHub Spec Kit phases.
 
 This extension adds phase-scoped discovery and validation hooks inspired by the Spec Kit Agents workflow described in [arXiv:2604.05278](https://arxiv.org/abs/2604.05278) ([PDF](https://arxiv.org/pdf/2604.05278)).
+The implementation also uses [sbhavani/speckit-agents](https://github.com/sbhavani/speckit-agents) as a reference for the shape of pre-phase discovery, post-phase validation, JSON findings, and auditable hook records.
 
 - `speckit.discovery-validation-hooks.discover`, aliased as `speckit.discover`
 - `speckit.discovery-validation-hooks.validate`, aliased as `speckit.validate`
 - Mandatory lifecycle hooks around `specify`, `plan`, `tasks`, and `implement`
-- A stdlib-only implementation validator that writes validation reports as artifacts
+- Stdlib-only discovery and validation scripts that write Markdown and JSON reports as artifacts
 
 The goal is to keep Spec Kit artifacts grounded in the actual repository: existing files, dependencies, conventions, feature artifacts, and safe project checks.
 
@@ -91,6 +92,16 @@ Reports are written under:
 .specify/context-grounding/
 ```
 
+Each report is emitted as both Markdown and JSON:
+
+```text
+.specify/context-grounding/discovery-<phase>.md
+.specify/context-grounding/discovery-<phase>.json
+.specify/context-grounding/validation-<phase>.md
+.specify/context-grounding/validation-<phase>.json
+.specify/context-grounding/grounding-log.jsonl
+```
+
 ## Lifecycle Hooks
 
 The extension registers mandatory hooks:
@@ -112,9 +123,16 @@ Each hook is marked `optional: false`.
 
 ```text
 .specify/context-grounding/discovery-<phase>.md
+.specify/context-grounding/discovery-<phase>.json
 ```
 
 It looks for project structure, documentation, constitution rules, manifests, dependency files, test commands, lint commands, source layout, and phase-specific implementation context.
+
+The mechanical entrypoint is:
+
+```bash
+python .specify/extensions/discovery-validation-hooks/scripts/discover_context.py --phase plan
+```
 
 ## Validation
 
@@ -122,24 +140,56 @@ It looks for project structure, documentation, constitution rules, manifests, de
 
 ```text
 .specify/context-grounding/validation-<phase>.md
+.specify/context-grounding/validation-<phase>.json
 ```
 
-For implementation validation, the extension includes a stdlib-only mechanical validator:
+The extension includes a stdlib-only mechanical validator for all Spec Kit phases:
+
+```bash
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase plan
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase tasks
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase implement
+```
+
+The previous implementation-only command is still supported as a compatibility wrapper:
 
 ```bash
 python .specify/extensions/discovery-validation-hooks/scripts/validate_implementation.py --phase implement
 ```
 
-The validator checks:
+The validator returns a non-zero exit code when the verdict is `FAIL`; mandatory hooks should treat that as a phase gate. It checks:
 
 - Required feature artifacts: `spec.md`, `plan.md`, `tasks.md`
 - Referenced file paths exist or are explicitly planned as new
-- Implementation changes are visible in `git status`
+- Implementation changes are visible in `git status` or committed branch diffs
 - Basic `FR-###` requirement coverage against `tasks.md`
+- Basic scenario/task coverage heuristics
+- Parallel `[P]` task file conflicts
 - Constitution presence
-- Safe project checks detected from manifests, such as `pytest -q`, `ruff check .`, `npm test`, `pnpm lint`, `go test ./...`, `cargo test`, `mvn test`, and `gradlew test`
+- Safe project checks detected from manifests, such as `pytest -q`, `ruff check .`, `npm test`, `pnpm lint`, `make test`, `go test ./...`, `cargo test`, `mvn test`, and `gradlew test`
 
 It does not install packages, run migrations, deploy, publish, release, or edit source files.
+
+Feature directory resolution is intentionally conservative: when multiple `specs/<feature>/` directories match and the current branch or artifacts cannot identify one, validation fails instead of guessing by modification time.
+
+## Reference Scope
+
+This repository implements the context-grounding extension layer, not the full multi-agent system from the paper.
+
+Borrowed design ideas from `sbhavani/speckit-agents`:
+
+- Separate pre-phase discovery and post-phase validation hooks.
+- Structured JSON findings in addition to human-readable summaries.
+- Per-run audit records for hook output and timing.
+- Explicit tool/check allowlists for validation.
+
+Intentionally not included here:
+
+- PM and developer agent orchestration.
+- Mattermost or Redis worker infrastructure.
+- Worktree lifecycle and PR creation automation.
+
+Those responsibilities belong to a full orchestrator such as `sbhavani/speckit-agents`; this extension stays focused on portable Spec Kit hook artifacts.
 
 ## Safety Model
 
@@ -163,7 +213,13 @@ ruby -e "require 'yaml'; data=YAML.load_file('extension.yml'); abort('missing co
 Check the validator syntax:
 
 ```bash
-python -m py_compile scripts/validate_implementation.py
+python -m py_compile scripts/context_grounding.py scripts/discover_context.py scripts/validate_artifacts.py scripts/validate_implementation.py
+```
+
+Run unit tests:
+
+```bash
+python -m unittest discover -s tests
 ```
 
 Smoke test in a temporary Spec Kit project:
@@ -172,7 +228,9 @@ Smoke test in a temporary Spec Kit project:
 specify init --here --integration codex --script ps --ignore-agent-tools
 specify extension add --dev /path/to/spec-kit-discovery-validation-hooks
 specify extension list
-python .specify/extensions/discovery-validation-hooks/scripts/validate_implementation.py --phase implement
+python .specify/extensions/discovery-validation-hooks/scripts/discover_context.py --phase implement
+# In an empty project this should produce a FAIL report and exit non-zero until feature artifacts exist.
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase implement
 ```
 
 ## License

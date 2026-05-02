@@ -30,6 +30,20 @@ It MAY write one compact validation report only under:
 
 ## Operating Rules
 
+- First run the mechanical validator when it is available:
+
+```text
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py <phase>
+```
+
+- If the extension is being developed from its source checkout, use:
+
+```text
+python scripts/validate_artifacts.py <phase>
+```
+
+- Treat a non-zero exit from the mechanical validator as a blocking gate. Do not proceed to the next Spec Kit phase after a `FAIL` verdict.
+- Use the generated Markdown and JSON reports as the primary repository evidence, then add only semantic findings the script cannot determine.
 - Be evidence-first. Every non-obvious claim MUST cite a file path or command output.
 - Do not invent APIs, files, dependencies, test commands, or architecture.
 - Do not install packages.
@@ -119,13 +133,11 @@ Check implementation against `spec.md`, `plan.md`, and `tasks.md`:
 - Constitution constraints are respected
 - No obvious drift from existing project conventions
 
-If available, run the mechanical validator first:
+The backward-compatible implementation-only entrypoint is still supported:
 
 ```text
 python .specify/extensions/discovery-validation-hooks/scripts/validate_implementation.py --phase implement
 ```
-
-If that script exists and succeeds, use its generated report as the primary repository-grounded evidence. Then add any manual semantic findings the script cannot determine.
 
 If the script is unavailable, perform the checks manually and then run safe project checks when available.
 
@@ -209,9 +221,10 @@ Write the report to:
 
 ```text
 .specify/context-grounding/validation-<phase>.md
+.specify/context-grounding/validation-<phase>.json
 ```
 
-For `implement`, the mechanical validator writes this file automatically when it is run.
+The mechanical validator writes these files automatically when it is run.
 
 ## Gate Behavior
 

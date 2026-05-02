@@ -24,6 +24,19 @@ It MAY write one compact discovery report only under:
 
 ## Operating Rules
 
+- First run the mechanical discovery script when it is available:
+
+```text
+python .specify/extensions/discovery-validation-hooks/scripts/discover_context.py <phase>
+```
+
+- If the extension is being developed from its source checkout, use:
+
+```text
+python scripts/discover_context.py <phase>
+```
+
+- Use the generated Markdown and JSON reports as the primary repository evidence.
 - Be evidence-first. Every non-obvious claim MUST cite a file path or command output.
 - Do not invent APIs, files, dependencies, test commands, or architecture.
 - Do not install packages.
@@ -148,7 +161,7 @@ Write the same report to:
 
 ```text
 .specify/context-grounding/discovery-<phase>.md
+.specify/context-grounding/discovery-<phase>.json
 ```
 
 If a current feature directory is known, include its path in the report.
-
