@@ -1,0 +1,84 @@
+schema_version: "1.0"
+
+extension:
+  id: "discovery-validation-hooks"
+  name: "Discovery and Validation Hooks"
+  version: "0.1.0"
+  description: "Repository-grounded discovery and validation commands for Spec Kit phases."
+  author: "MORI ISSEI"
+  repository: "https://github.com/stockedge/spec-kit-discovery-validation-hooks"
+  license: "MIT"
+  homepage: "https://github.com/stockedge/spec-kit-discovery-validation-hooks"
+
+requires:
+  speckit_version: ">=0.3.0"
+
+provides:
+  commands:
+    - name: "speckit.discovery-validation-hooks.discover"
+      file: "commands/discover.md"
+      description: "Discover repository context before a Spec Kit phase"
+      aliases:
+        - "speckit.discover"
+
+    - name: "speckit.discovery-validation-hooks.validate"
+      file: "commands/validate.md"
+      description: "Validate Spec Kit artifacts or implementation against repository reality"
+      aliases:
+        - "speckit.validate"
+
+hooks:
+  before_specify:
+    command: "speckit.discovery-validation-hooks.discover"
+    optional: false
+    description: "Discover repository context before specification generation"
+    prompt: "Collect repository evidence before writing spec.md."
+
+  after_specify:
+    command: "speckit.discovery-validation-hooks.validate"
+    optional: false
+    description: "Validate generated spec.md against repository reality"
+    prompt: "Validate spec.md for clarity, testability, and repository alignment."
+
+  before_plan:
+    command: "speckit.discovery-validation-hooks.discover"
+    optional: false
+    description: "Discover implementation-relevant context before plan.md"
+    prompt: "Collect repository evidence before writing plan.md."
+
+  after_plan:
+    command: "speckit.discovery-validation-hooks.validate"
+    optional: false
+    description: "Validate plan.md against existing paths, dependencies, and architecture"
+    prompt: "Validate plan.md before task generation."
+
+  before_tasks:
+    command: "speckit.discovery-validation-hooks.discover"
+    optional: false
+    description: "Discover task-relevant context before tasks.md"
+    prompt: "Collect repository evidence before writing tasks.md."
+
+  after_tasks:
+    command: "speckit.discovery-validation-hooks.validate"
+    optional: false
+    description: "Validate tasks.md for coverage, ordering, and feasibility"
+    prompt: "Validate tasks.md before implementation."
+
+  before_implement:
+    command: "speckit.discovery-validation-hooks.discover"
+    optional: false
+    description: "Refresh repository context before implementation"
+    prompt: "Collect final repository evidence before implementation."
+
+  after_implement:
+    command: "speckit.discovery-validation-hooks.validate"
+    optional: false
+    description: "Validate implementation with artifact checks and project checks"
+    prompt: "Validate implementation against spec, plan, tasks, and project checks."
+
+tags:
+  - "context"
+  - "validation"
+  - "quality"
+  - "workflow"
+  - "process"

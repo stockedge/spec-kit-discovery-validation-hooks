@@ -1,0 +1,7 @@
+.git/
+.git
+.DS_Store
+Thumbs.db
+.specify/
+__pycache__/
+*.pyc
