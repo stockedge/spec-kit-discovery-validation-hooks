@@ -112,10 +112,13 @@ class ContextGroundingTests(unittest.TestCase):
             self.assertIn("committed", source)
 
 
+JJ = shutil.which("jj") or "jj"
+
+
 @unittest.skipIf(shutil.which("jj") is None, "jj is not available")
 class JujutsuTests(unittest.TestCase):
     def _init_jj_repo(self, root: Path) -> None:
-        subprocess.run(["jj", "git", "init"], cwd=root, check=True, capture_output=True, text=True)
+        subprocess.run([JJ, "git", "init"], cwd=root, check=True, capture_output=True, text=True)
 
     def test_is_jj_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,7 +132,7 @@ class JujutsuTests(unittest.TestCase):
             root = Path(tmp)
             self._init_jj_repo(root)
             (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
             subprocess.run(
                 ["jj", "bookmark", "create", "feature/demo", "-r", "@"],
                 cwd=root, check=True, capture_output=True,
@@ -144,7 +147,7 @@ class JujutsuTests(unittest.TestCase):
             root = Path(tmp)
             self._init_jj_repo(root)
             (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
             subprocess.run(
                 ["jj", "bookmark", "create", "feature/demo", "-r", "@-"],
                 cwd=root, check=True, capture_output=True,
@@ -159,10 +162,10 @@ class JujutsuTests(unittest.TestCase):
             root = Path(tmp)
             self._init_jj_repo(root)
             (root / "base.py").write_text("BASE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
-            subprocess.run(["jj", "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
             (root / "feature.py").write_text("FEATURE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
 
             changed = jj_changed_files(root)
 
@@ -174,12 +177,12 @@ class JujutsuTests(unittest.TestCase):
             root = Path(tmp)
             self._init_jj_repo(root)
             (root / "base.py").write_text("BASE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
-            subprocess.run(["jj", "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
             (root / "feature.py").write_text("FEATURE = 1\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
 
-            changed, source = implementation_changed_files(root)
+            changed, _source = implementation_changed_files(root)
 
             self.assertIn("feature.py", changed)
 
@@ -191,7 +194,7 @@ class JujutsuTests(unittest.TestCase):
             (root / "specs" / "feature-demo" / "spec.md").write_text("# Demo\n", encoding="utf-8")
             (root / "specs" / "other-feature").mkdir(parents=True)
             (root / "specs" / "other-feature" / "spec.md").write_text("# Other\n", encoding="utf-8")
-            subprocess.run(["jj", "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
             subprocess.run(
                 ["jj", "bookmark", "create", "feature-demo", "-r", "@"],
                 cwd=root, check=True, capture_output=True,
