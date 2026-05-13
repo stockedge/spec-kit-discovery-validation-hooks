@@ -163,8 +163,29 @@ def git_output(root: Path, args: list[str]) -> str:
     return output if code == 0 else ""
 
 
+def jj_bookmarks(root: Path, revset: str) -> str:
+    if not command_exists("jj"):
+        return ""
+    code, output = run(["jj", "log", "-r", revset, "--no-graph", "-T", "bookmarks"], root, timeout=10)
+    if code != 0 or not output.strip():
+        return ""
+    return output.strip().split()[0]
+
+
+def is_jj_repo(root: Path) -> bool:
+    return (root / ".jj").is_dir()
+
+
 def current_branch(root: Path) -> str:
-    return git_output(root, ["branch", "--show-current"]).strip()
+    branch = git_output(root, ["branch", "--show-current"]).strip()
+    if branch:
+        return branch
+    if is_jj_repo(root):
+        for rev in ("@", "@-"):
+            bookmark = jj_bookmarks(root, rev)
+            if bookmark:
+                return bookmark
+    return ""
 
 
 def git_status_short(root: Path) -> str:
@@ -185,9 +206,29 @@ def status_changed_files(root: Path) -> list[str]:
     return sorted(set(files))
 
 
+def jj_changed_files(root: Path) -> set[str]:
+    if not command_exists("jj"):
+        return set()
+    code, output = run(["jj", "diff", "--from", "trunk()", "--to", "@-", "--summary"], root, timeout=30)
+    if code != 0:
+        return set()
+    files: set[str] = set()
+    for line in output.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            files.add(parts[1].strip().replace("\\", "/"))
+    return files
+
+
 def committed_changed_files(root: Path) -> list[str]:
     files: set[str] = set()
     branch = current_branch(root)
+
+    if is_jj_repo(root) and not git_output(root, ["branch", "--show-current"]).strip():
+        files = jj_changed_files(root)
+        if files:
+            return sorted(files)
+
     if branch and branch not in {"main", "master"}:
         for base in ("origin/main", "origin/master", "main", "master"):
             merge_base = git_output(root, ["merge-base", base, "HEAD"]).strip()

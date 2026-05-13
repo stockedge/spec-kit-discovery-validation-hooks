@@ -11,7 +11,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from context_grounding import find_feature_dir, implementation_changed_files, path_status, safe_commands
+from context_grounding import (
+    current_branch,
+    find_feature_dir,
+    implementation_changed_files,
+    is_jj_repo,
+    jj_changed_files,
+    path_status,
+    safe_commands,
+)
 from validate_artifacts import validate
 
 
@@ -102,6 +110,100 @@ class ContextGroundingTests(unittest.TestCase):
 
             self.assertIn("app.py", changed)
             self.assertIn("committed", source)
+
+
+JJ = shutil.which("jj") or "jj"
+
+
+@unittest.skipIf(shutil.which("jj") is None, "jj is not available")
+class JujutsuTests(unittest.TestCase):
+    def _init_jj_repo(self, root: Path) -> None:
+        subprocess.run([JJ, "git", "init"], cwd=root, check=True, capture_output=True, text=True)
+
+    def test_is_jj_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertFalse(is_jj_repo(root))
+            self._init_jj_repo(root)
+            self.assertTrue(is_jj_repo(root))
+
+    def test_current_branch_from_jj_bookmark(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_jj_repo(root)
+            (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run(
+                ["jj", "bookmark", "create", "feature/demo", "-r", "@"],
+                cwd=root, check=True, capture_output=True,
+            )
+
+            branch = current_branch(root)
+
+            self.assertEqual(branch, "feature/demo")
+
+    def test_current_branch_falls_back_to_parent_bookmark(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_jj_repo(root)
+            (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run(
+                ["jj", "bookmark", "create", "feature/demo", "-r", "@-"],
+                cwd=root, check=True, capture_output=True,
+            )
+
+            branch = current_branch(root)
+
+            self.assertEqual(branch, "feature/demo")
+
+    def test_jj_changed_files_detects_diff_from_trunk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_jj_repo(root)
+            (root / "base.py").write_text("BASE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
+            (root / "feature.py").write_text("FEATURE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
+
+            changed = jj_changed_files(root)
+
+            self.assertIn("base.py", changed)
+            self.assertIn("feature.py", changed)
+
+    def test_implementation_changed_files_in_jj_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_jj_repo(root)
+            (root / "base.py").write_text("BASE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "initial on main"], cwd=root, check=True, capture_output=True)
+            subprocess.run([JJ, "bookmark", "set", "main", "-r", "@-"], cwd=root, check=True, capture_output=True)
+            (root / "feature.py").write_text("FEATURE = 1\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "add feature"], cwd=root, check=True, capture_output=True)
+
+            changed, _source = implementation_changed_files(root)
+
+            self.assertIn("feature.py", changed)
+
+    def test_feature_resolution_with_jj_bookmark(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_jj_repo(root)
+            (root / "specs" / "feature-demo").mkdir(parents=True)
+            (root / "specs" / "feature-demo" / "spec.md").write_text("# Demo\n", encoding="utf-8")
+            (root / "specs" / "other-feature").mkdir(parents=True)
+            (root / "specs" / "other-feature" / "spec.md").write_text("# Other\n", encoding="utf-8")
+            subprocess.run([JJ, "commit", "-m", "initial"], cwd=root, check=True, capture_output=True)
+            subprocess.run(
+                ["jj", "bookmark", "create", "feature-demo", "-r", "@"],
+                cwd=root, check=True, capture_output=True,
+            )
+
+            result = find_feature_dir(root)
+
+            self.assertFalse(result.ambiguous)
+            self.assertEqual(result.feature_dir, "specs/feature-demo")
 
 
 if __name__ == "__main__":
