@@ -8,6 +8,7 @@ validator asks for them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -25,7 +26,9 @@ BLOCKING_HIGH_CATEGORIES = {
     "Artifacts",
     "Executable checks",
     "Feature resolution",
+    "Grounding trailer",
     "Implementation",
+    "LLM review",
     "Referenced files",
     "Requirement coverage",
     "Task feasibility",
@@ -653,3 +656,80 @@ def verdict_from_findings(findings: list[Finding]) -> str:
 def finding_dicts(findings: list[Finding]) -> list[dict[str, str]]:
     ordered = sorted(findings, key=lambda finding: SEVERITY_ORDER[finding.severity], reverse=True)
     return [asdict(finding) for finding in ordered]
+
+
+TRAILER_RE = re.compile(
+    r"<!--\s*grounded-by:\s*(?P<path>\S+)\s+sha256=(?P<sha>[0-9a-f]{64})\s*-->",
+    re.IGNORECASE,
+)
+
+PHASE_TO_ARTIFACT = {
+    "specify": "spec.md",
+    "plan": "plan.md",
+    "tasks": "tasks.md",
+    "implement": "tasks.md",
+}
+
+
+@dataclass
+class LLMFinding:
+    id: str
+    severity: str
+    category: str
+    location: str
+    evidence: str
+    recommendation: str
+    semantic: bool = True
+
+
+@dataclass
+class LLMAttestation:
+    reviewer: str
+    generated_at: str
+    finding_count: int
+    no_issues: bool
+    justification: str
+    discovery_sha256: str
+    signature: str
+
+
+def canonical_json_bytes(data: dict[str, Any]) -> bytes:
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def compute_discovery_hash(data: dict[str, Any]) -> str:
+    stripped = {k: v for k, v in data.items() if k != "content_sha256"}
+    return sha256_bytes(canonical_json_bytes(stripped))
+
+
+def compute_attestation_signature(
+    findings: list[dict[str, Any]],
+    reviewer: str,
+    generated_at: str,
+    discovery_sha256: str,
+) -> str:
+    payload = canonical_json_bytes(
+        {
+            "findings": findings,
+            "reviewer": reviewer,
+            "generated_at": generated_at,
+            "discovery_sha256": discovery_sha256,
+        }
+    )
+    return sha256_bytes(payload)
+
+
+def extract_trailer(text: str) -> tuple[str, str] | None:
+    matches = list(TRAILER_RE.finditer(text))
+    if not matches:
+        return None
+    m = matches[-1]
+    return m.group("path"), m.group("sha").lower()
+
+
+def phase_artifact_name(phase: str) -> str:
+    return PHASE_TO_ARTIFACT.get(phase, "spec.md")
