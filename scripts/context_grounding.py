@@ -145,7 +145,9 @@ def out_dir(root: Path) -> Path:
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def append_audit(root: Path, record_type: str, data: dict[str, Any]) -> None:
@@ -671,28 +673,6 @@ PHASE_TO_ARTIFACT = {
 }
 
 
-@dataclass
-class LLMFinding:
-    id: str
-    severity: str
-    category: str
-    location: str
-    evidence: str
-    recommendation: str
-    semantic: bool = True
-
-
-@dataclass
-class LLMAttestation:
-    reviewer: str
-    generated_at: str
-    finding_count: int
-    no_issues: bool
-    justification: str
-    discovery_sha256: str
-    signature: str
-
-
 def canonical_json_bytes(data: dict[str, Any]) -> bytes:
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
@@ -739,4 +719,4 @@ def extract_trailer(text: str) -> tuple[str, str] | None:
 
 
 def phase_artifact_name(phase: str) -> str:
-    return PHASE_TO_ARTIFACT.get(phase, "spec.md")
+    return PHASE_TO_ARTIFACT[phase]

@@ -49,6 +49,50 @@ class TestTrailerGate(unittest.TestCase):
             categories = {f["category"] for f in data["findings"]}
             self.assertNotIn("Grounding trailer", categories)
 
+    def test_stale_trailer_sha_mismatch_is_fail(self) -> None:
+        """Re-running discover invalidates an old trailer SHA."""
+        with TemporaryDirectory() as tmp:
+            root = self._make_repo(Path(tmp))
+            dc.main(["--phase", "specify", "--root", str(root)])
+            stale_sha = "a" * 64
+            spec_path = root / "specs" / "001-test" / "spec.md"
+            spec_path.write_text(
+                spec_path.read_text()
+                + f"\n<!-- grounded-by: .specify/context-grounding/discovery-specify.json sha256={stale_sha} -->\n",
+                encoding="utf-8",
+            )
+            data = va.validate(root, "specify", run_checks=False, require_llm_review=False, require_trailer=True)
+            categories = {f["category"] for f in data["findings"]}
+            self.assertIn("Grounding trailer", categories)
+            self.assertEqual(data["verdict"], "FAIL")
+
+    def test_path_traversal_trailer_is_rejected(self) -> None:
+        """A trailer pointing outside .specify/context-grounding/ must be rejected."""
+        with TemporaryDirectory() as tmp:
+            root = self._make_repo(Path(tmp))
+            dc.main(["--phase", "specify", "--root", str(root)])
+            fake_sha = "b" * 64
+            spec_path = root / "specs" / "001-test" / "spec.md"
+            spec_path.write_text(
+                spec_path.read_text()
+                + f"\n<!-- grounded-by: ../../evil.json sha256={fake_sha} -->\n",
+                encoding="utf-8",
+            )
+            data = va.validate(root, "specify", run_checks=False, require_llm_review=False, require_trailer=True)
+            categories = {f["category"] for f in data["findings"]}
+            self.assertIn("Grounding trailer", categories)
+            self.assertEqual(data["verdict"], "FAIL")
+
+    def test_no_require_flags_yield_not_run(self) -> None:
+        """--no-require-* flags produce NOT_RUN rows, not FAIL."""
+        with TemporaryDirectory() as tmp:
+            root = self._make_repo(Path(tmp))
+            dc.main(["--phase", "specify", "--root", str(root)])
+            data = va.validate(root, "specify", run_checks=False, require_llm_review=False, require_trailer=False)
+            compat = {r["check"]: r["result"] for r in data["repository_compatibility"]}
+            self.assertEqual(compat.get("Grounding trailer"), "NOT_RUN")
+            self.assertEqual(compat.get("LLM review"), "NOT_RUN")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -494,20 +494,20 @@ def check_grounding_trailer(
     discovery_json = root / declared_path
     try:
         discovery_json = discovery_json.resolve()
-        if discovery_json != expected_json_path.resolve():
-            findings.append(
-                Finding(
-                    "CRITICAL",
-                    "Grounding trailer",
-                    location,
-                    f"Trailer references `{declared_path}` but expected `.specify/context-grounding/discovery-{phase}.json`.",
-                    "Re-run discover and use the printed trailer line verbatim.",
-                )
+    except OSError:
+        pass  # best-effort; path equality check below still gates traversal
+    if discovery_json != expected_json_path.resolve():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Trailer references `{declared_path}` but expected `.specify/context-grounding/discovery-{phase}.json`.",
+                "Re-run discover and use the printed trailer line verbatim.",
             )
-            compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "unexpected discovery path"})
-            return state
-    except Exception:
-        pass
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "unexpected discovery path"})
+        return state
 
     if not discovery_json.exists():
         findings.append(
@@ -913,8 +913,8 @@ def render_markdown(data: dict[str, Any]) -> str:
     att = data.get("llm_attestation")
     lines.extend(["", "## LLM Attestation"])
     if att:
-        lines.append(f"- reviewer: `{att.get('reviewer')}`")
-        lines.append(f"- generated_at: `{att.get('generated_at')}`")
+        lines.append(f"- reviewer: `{table_cell(att.get('reviewer', ''))}`")
+        lines.append(f"- generated_at: `{table_cell(att.get('generated_at', ''))}`")
         lines.append(f"- finding_count: {att.get('finding_count')}")
         lines.append(f"- no_issues: {att.get('no_issues')}")
         lines.append(f"- discovery_sha256: `{str(att.get('discovery_sha256', ''))[:16]}…`")

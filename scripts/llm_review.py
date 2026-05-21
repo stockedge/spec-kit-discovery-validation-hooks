@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 REQUIRED_FINDING_KEYS = {"id", "severity", "category", "location", "evidence", "recommendation"}
 ALLOWED_SEVERITY = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+MAX_FINDINGS = 500
+_HEX64 = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 
 
 def load_review(path: Path) -> dict[str, Any]:
@@ -19,8 +22,14 @@ def load_review(path: Path) -> dict[str, Any]:
     for required in ("reviewer", "phase", "discovery_sha256", "no_issues", "justification", "findings"):
         if required not in data:
             raise ValueError(f"missing key: {required}")
+    if not isinstance(data["reviewer"], str) or not data["reviewer"].strip():
+        raise ValueError("reviewer must be a non-empty string")
+    if not isinstance(data["discovery_sha256"], str) or not _HEX64.match(data["discovery_sha256"]):
+        raise ValueError("discovery_sha256 must be a 64-char hex string")
     if not isinstance(data["findings"], list):
         raise ValueError("findings must be a list")
+    if len(data["findings"]) > MAX_FINDINGS:
+        raise ValueError(f"findings list exceeds maximum allowed length ({MAX_FINDINGS})")
     for i, f in enumerate(data["findings"]):
         if not isinstance(f, dict):
             raise ValueError(f"finding[{i}] must be a JSON object")
@@ -29,6 +38,8 @@ def load_review(path: Path) -> dict[str, Any]:
             raise ValueError(f"finding[{i}] missing: {sorted(missing)}")
         if f["severity"] not in ALLOWED_SEVERITY:
             raise ValueError(f"finding[{i}].severity invalid: {f['severity']}")
+    if not data["no_issues"] and not data["findings"]:
+        raise ValueError("no_issues=false requires at least one finding")
     return data
 
 
