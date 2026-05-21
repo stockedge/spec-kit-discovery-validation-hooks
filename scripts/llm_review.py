@@ -22,6 +22,8 @@ def load_review(path: Path) -> dict[str, Any]:
     if not isinstance(data["findings"], list):
         raise ValueError("findings must be a list")
     for i, f in enumerate(data["findings"]):
+        if not isinstance(f, dict):
+            raise ValueError(f"finding[{i}] must be a JSON object")
         missing = REQUIRED_FINDING_KEYS - set(f)
         if missing:
             raise ValueError(f"finding[{i}] missing: {sorted(missing)}")

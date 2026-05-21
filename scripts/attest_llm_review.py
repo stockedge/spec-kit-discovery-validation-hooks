@@ -52,8 +52,8 @@ def main(argv: Iterable[str]) -> int:
         return 2
 
     discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
-    expected_sha = discovery.get("content_sha256") or compute_discovery_hash(discovery)
-    if review["discovery_sha256"] != expected_sha:
+    expected_sha = compute_discovery_hash(discovery)
+    if review["discovery_sha256"].lower() != expected_sha.lower():
         print(
             f"ERROR: review.discovery_sha256 ({review['discovery_sha256'][:12]}…) "
             f"!= discovery sha ({expected_sha[:12]}…). Re-run discover or rebase review.",
@@ -82,7 +82,9 @@ def main(argv: Iterable[str]) -> int:
     validation = json.loads(validation_path.read_text(encoding="utf-8"))
     validation["llm_findings"] = findings
     validation["llm_attestation"] = attestation
-    validation_path.write_text(json.dumps(validation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path = validation_path.with_suffix(validation_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(validation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(validation_path)
 
     append_audit(
         root,

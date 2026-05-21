@@ -185,11 +185,11 @@ python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts
 ```
 
 The second `validate` checks `llm_findings` + `llm_attestation` inside
-`validation-<phase>.json`, verifies the signature, and confirms the
+`validation-<phase>.json`, verifies the attestation digest, and confirms the
 `discovery_sha256` matches both the `discovery-<phase>.json` and the
 `grounded-by` trailer in the phase artifact.
 
-To use v0.2.x compatible behaviour (mechanical-only gate), pass:
+To use v0.2.x-compatible behavior (mechanical-only gate), pass:
 
 ```bash
 python scripts/validate_artifacts.py --phase plan --no-require-llm-review --no-require-trailer

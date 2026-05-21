@@ -17,7 +17,6 @@ from context_grounding import (
     BLOCKING_HIGH_CATEGORIES,
     Finding,
     append_audit,
-    canonical_json_bytes,
     compute_attestation_signature,
     compute_discovery_hash,
     detect_project_types,
@@ -37,7 +36,6 @@ from context_grounding import (
     run_safe_commands,
     safe_commands,
     scenario_headers,
-    sha256_bytes,
     table_cell,
     task_entries,
     verdict_from_findings,
@@ -492,7 +490,25 @@ def check_grounding_trailer(
     state["declared"] = {"path": declared_path, "sha256": declared_sha}
     state["present"] = True
 
+    expected_json_path = out_dir(root) / f"discovery-{phase}.json"
     discovery_json = root / declared_path
+    try:
+        discovery_json = discovery_json.resolve()
+        if discovery_json != expected_json_path.resolve():
+            findings.append(
+                Finding(
+                    "CRITICAL",
+                    "Grounding trailer",
+                    location,
+                    f"Trailer references `{declared_path}` but expected `.specify/context-grounding/discovery-{phase}.json`.",
+                    "Re-run discover and use the printed trailer line verbatim.",
+                )
+            )
+            compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "unexpected discovery path"})
+            return state
+    except Exception:
+        pass
+
     if not discovery_json.exists():
         findings.append(
             Finding(
@@ -521,8 +537,21 @@ def check_grounding_trailer(
         compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "invalid json"})
         return state
 
-    expected = data.get("content_sha256") or compute_discovery_hash(data)
+    expected = compute_discovery_hash(data)
+    stored = data.get("content_sha256")
     state["expected"] = expected
+    if stored and stored.lower() != expected.lower():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Discovery JSON stored content_sha256 ({stored[:12]}…) does not match its actual content ({expected[:12]}…).",
+                "Re-run discover to regenerate discovery-<phase>.json and its sidecar.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "stored sha mismatch"})
+        return state
     if declared_sha.lower() != expected.lower():
         findings.append(
             Finding(
@@ -568,6 +597,7 @@ def check_llm_attestation(
                 "Run validate_artifacts.py once to produce the mechanical baseline, then run scripts/attest_llm_review.py.",
             )
         )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "validation json missing"})
         return llm_findings, attestation
 
     try:
@@ -576,6 +606,7 @@ def check_llm_attestation(
         findings.append(
             Finding("CRITICAL", "LLM review", rel(json_path, root), f"Invalid JSON: {exc}", "Re-run validate.")
         )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "invalid json"})
         return llm_findings, attestation
 
     llm_findings = data.get("llm_findings") or []
@@ -591,6 +622,7 @@ def check_llm_attestation(
                 "Run `python scripts/attest_llm_review.py --phase <phase> --findings <file>` after agent review.",
             )
         )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "attestation missing"})
         return llm_findings, attestation
 
     required_keys = {"reviewer", "generated_at", "finding_count", "no_issues", "justification", "discovery_sha256", "signature"}
@@ -605,6 +637,7 @@ def check_llm_attestation(
                 "Re-run attest_llm_review.py with a full attestation.",
             )
         )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": f"missing keys: {sorted(missing)}"})
         return llm_findings, attestation
 
     if attestation["no_issues"]:

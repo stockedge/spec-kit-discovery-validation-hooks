@@ -712,6 +712,13 @@ def compute_attestation_signature(
     generated_at: str,
     discovery_sha256: str,
 ) -> str:
+    """Return an unkeyed SHA-256 digest over findings + metadata.
+
+    This is tamper-detection, not a cryptographic signature — anyone with
+    access to the data can recompute it.  The value ties the attestation
+    to a specific set of findings and discovery snapshot so accidental
+    drift is caught by the validator.
+    """
     payload = canonical_json_bytes(
         {
             "findings": findings,
