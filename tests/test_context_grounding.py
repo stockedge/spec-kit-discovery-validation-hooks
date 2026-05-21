@@ -74,7 +74,7 @@ class ContextGroundingTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = validate(root, "tasks", run_checks=False)
+            result = validate(root, "tasks", run_checks=False, require_llm_review=False, require_trailer=False)
 
             self.assertEqual(result["verdict"], "FAIL")
             self.assertTrue(any(f["category"] == "Task feasibility" for f in result["findings"]))
