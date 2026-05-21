@@ -155,6 +155,20 @@ Produce a concise Markdown report:
 <Specific guidance the next Spec Kit command must follow>
 ```
 
+## Grounding Trailer (MANDATORY)
+
+After running the mechanical script, the script prints a line like:
+
+    <!-- grounded-by: .specify/context-grounding/discovery-<phase>.json sha256=<hex> -->
+
+You MUST include this exact line at the end of the Spec Kit artifact for the
+phase you discovered (`spec.md` for specify, `plan.md` for plan, `tasks.md` for
+tasks and implement). Without this trailer the subsequent `validate` step will
+FAIL with category `Grounding trailer`.
+
+Do NOT modify the sha256. If discovery is re-run, replace the entire trailer
+line.
+
 ## Persistence
 
 Write the same report to:
