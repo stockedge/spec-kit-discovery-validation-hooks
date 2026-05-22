@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from context_grounding import (
     PHASES,
     append_audit,
+    compute_discovery_hash,
     current_branch,
     detect_project_types,
     docs_and_instructions,
@@ -22,6 +23,7 @@ from context_grounding import (
     latest_git_log,
     manifest_paths,
     out_dir,
+    phase_artifact_name,
     read_text,
     rel,
     resolve_phase,
@@ -282,13 +284,18 @@ def main(argv: Iterable[str]) -> int:
     root = Path(args.root).resolve()
     phase = resolve_phase(root, args.phase or args.phase_arg)
     data = discovery_data(root, phase)
+
+    data["content_sha256"] = compute_discovery_hash(data)
     markdown = render_markdown(data)
 
     directory = out_dir(root)
     md_path = directory / f"discovery-{phase}.md"
     json_path = directory / f"discovery-{phase}.json"
+    sha_path = directory / f"discovery-{phase}.sha256"
     md_path.write_text(markdown, encoding="utf-8")
     write_json(json_path, data)
+    sha_path.write_text(data["content_sha256"] + "\n", encoding="utf-8")
+
     append_audit(
         root,
         "discovery",
@@ -296,11 +303,21 @@ def main(argv: Iterable[str]) -> int:
             "phase": phase,
             "report": str(md_path),
             "json": str(json_path),
+            "sha256": data["content_sha256"],
             "duration_ms": round((time.monotonic() - started) * 1000, 1),
         },
     )
 
+    trailer = (
+        f"<!-- grounded-by: .specify/context-grounding/discovery-{phase}.json "
+        f"sha256={data['content_sha256']} -->"
+    )
+    target = phase_artifact_name(phase)
+
     print(markdown)
+    print("\n---")
+    print(f"## Grounding Trailer (append this line to the end of {target}):\n")
+    print(trailer)
     return 0
 
 

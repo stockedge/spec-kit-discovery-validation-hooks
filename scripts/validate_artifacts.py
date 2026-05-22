@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -16,7 +17,10 @@ from context_grounding import (
     BLOCKING_HIGH_CATEGORIES,
     Finding,
     append_audit,
+    compute_attestation_signature,
+    compute_discovery_hash,
     detect_project_types,
+    extract_trailer,
     feature_path,
     find_feature_dir,
     finding_dicts,
@@ -24,6 +28,7 @@ from context_grounding import (
     load_artifacts,
     out_dir,
     package_dependencies,
+    phase_artifact_name,
     referenced_paths,
     rel,
     requirement_ids,
@@ -445,7 +450,286 @@ def validate_implement(
     return command_results
 
 
-def validate(root: Path, phase: str, run_checks: bool) -> dict[str, Any]:
+def check_grounding_trailer(
+    root: Path,
+    phase: str,
+    feature_dir: Path | None,
+    artifacts: dict[str, tuple[Path, str]],
+    findings: list[Finding],
+    compatibility: list[dict[str, str]],
+    require: bool,
+) -> dict[str, Any]:
+    target = phase_artifact_name(phase)
+    state: dict[str, Any] = {"target": target, "present": False, "sha_match": False, "declared": None, "expected": None}
+
+    if not require:
+        compatibility.append({"check": "Grounding trailer", "result": "NOT_RUN", "evidence": "--require-trailer was disabled"})
+        return state
+
+    if target not in artifacts:
+        compatibility.append({"check": "Grounding trailer", "result": "SKIP", "evidence": f"{target} not present"})
+        return state
+
+    path, text = artifacts[target]
+    location = rel(path, root)
+    parsed = extract_trailer(text)
+    if parsed is None:
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"{target} does not contain a `grounded-by` trailer.",
+                f"Run discover first, then append the printed trailer line to the end of {target}.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "missing trailer"})
+        return state
+
+    declared_path, declared_sha = parsed
+    state["declared"] = {"path": declared_path, "sha256": declared_sha}
+    state["present"] = True
+
+    expected_json_path = out_dir(root) / f"discovery-{phase}.json"
+    discovery_json = root / declared_path
+    try:
+        discovery_json = discovery_json.resolve()
+    except OSError:
+        pass  # best-effort; path equality check below still gates traversal
+    if discovery_json != expected_json_path.resolve():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Trailer references `{declared_path}` but expected `.specify/context-grounding/discovery-{phase}.json`.",
+                "Re-run discover and use the printed trailer line verbatim.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "unexpected discovery path"})
+        return state
+
+    if not discovery_json.exists():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Trailer references `{declared_path}` but the file is missing.",
+                "Re-run `discover` for this phase before validating.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "discovery json missing"})
+        return state
+
+    try:
+        data = json.loads(discovery_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Discovery JSON `{declared_path}` is not valid JSON: {exc}",
+                "Re-run discover to regenerate the file.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "invalid json"})
+        return state
+
+    expected = compute_discovery_hash(data)
+    stored = data.get("content_sha256")
+    state["expected"] = expected
+    if stored and stored.lower() != expected.lower():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Discovery JSON stored content_sha256 ({stored[:12]}…) does not match its actual content ({expected[:12]}…).",
+                "Re-run discover to regenerate discovery-<phase>.json and its sidecar.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "stored sha mismatch"})
+        return state
+    if declared_sha.lower() != expected.lower():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "Grounding trailer",
+                location,
+                f"Trailer sha256 ({declared_sha[:12]}…) does not match discovery JSON ({expected[:12]}…).",
+                "Re-run discover, replace the old trailer in the artifact, and re-validate.",
+            )
+        )
+        compatibility.append({"check": "Grounding trailer", "result": "FAIL", "evidence": "sha mismatch"})
+        return state
+
+    state["sha_match"] = True
+    compatibility.append({"check": "Grounding trailer", "result": "PASS", "evidence": f"{declared_path}@{expected[:12]}"})
+    return state
+
+
+def check_llm_attestation(
+    root: Path,
+    phase: str,
+    findings: list[Finding],
+    compatibility: list[dict[str, str]],
+    trailer_state: dict[str, Any],
+    require: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    directory = out_dir(root)
+    json_path = directory / f"validation-{phase}.json"
+    llm_findings: list[dict[str, Any]] = []
+    attestation: dict[str, Any] | None = None
+
+    if not require:
+        compatibility.append({"check": "LLM review", "result": "NOT_RUN", "evidence": "--require-llm-review was disabled"})
+        return llm_findings, attestation
+
+    if not json_path.exists():
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "LLM review",
+                rel(json_path, root),
+                "validation-<phase>.json does not exist yet, so LLM attestation cannot be verified.",
+                "Run validate_artifacts.py once to produce the mechanical baseline, then run scripts/attest_llm_review.py.",
+            )
+        )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "validation json missing"})
+        return llm_findings, attestation
+
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        findings.append(
+            Finding("CRITICAL", "LLM review", rel(json_path, root), f"Invalid JSON: {exc}", "Re-run validate.")
+        )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "invalid json"})
+        return llm_findings, attestation
+
+    llm_findings = data.get("llm_findings") or []
+    attestation = data.get("llm_attestation")
+
+    if not attestation:
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "LLM review",
+                rel(json_path, root),
+                "`llm_attestation` is missing. The LLM-driven validate step has not run.",
+                "Run `python scripts/attest_llm_review.py --phase <phase> --findings <file>` after agent review.",
+            )
+        )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": "attestation missing"})
+        return llm_findings, attestation
+
+    required_keys = {"reviewer", "generated_at", "finding_count", "no_issues", "justification", "discovery_sha256", "signature"}
+    missing = required_keys - set(attestation)
+    if missing:
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "LLM review",
+                rel(json_path, root),
+                f"`llm_attestation` is missing keys: {sorted(missing)}",
+                "Re-run attest_llm_review.py with a full attestation.",
+            )
+        )
+        compatibility.append({"check": "LLM review", "result": "FAIL", "evidence": f"missing keys: {sorted(missing)}"})
+        return llm_findings, attestation
+
+    if attestation["no_issues"]:
+        if not str(attestation.get("justification", "")).strip():
+            findings.append(
+                Finding(
+                    "CRITICAL",
+                    "LLM review",
+                    rel(json_path, root),
+                    "`no_issues=true` requires a non-empty justification.",
+                    "Add a justification or remove no_issues.",
+                )
+            )
+        if attestation["finding_count"] != 0:
+            findings.append(
+                Finding(
+                    "CRITICAL",
+                    "LLM review",
+                    rel(json_path, root),
+                    "`no_issues=true` but finding_count != 0.",
+                    "Fix the attestation.",
+                )
+            )
+    else:
+        if not llm_findings:
+            findings.append(
+                Finding(
+                    "CRITICAL",
+                    "LLM review",
+                    rel(json_path, root),
+                    "`llm_findings` is empty and `no_issues` is false.",
+                    "Either add at least one finding or set no_issues=true with justification.",
+                )
+            )
+        if attestation["finding_count"] != len(llm_findings):
+            findings.append(
+                Finding(
+                    "HIGH",
+                    "LLM review",
+                    rel(json_path, root),
+                    f"finding_count={attestation['finding_count']} but llm_findings has {len(llm_findings)} entries.",
+                    "Re-run attest_llm_review.py.",
+                )
+            )
+
+    expected_sig = compute_attestation_signature(
+        findings=llm_findings,
+        reviewer=attestation["reviewer"],
+        generated_at=attestation["generated_at"],
+        discovery_sha256=attestation["discovery_sha256"],
+    )
+    if expected_sig != attestation["signature"]:
+        findings.append(
+            Finding(
+                "CRITICAL",
+                "LLM review",
+                rel(json_path, root),
+                "`llm_attestation.signature` does not match findings+metadata. Tampered or stale.",
+                "Re-run attest_llm_review.py to regenerate signature.",
+            )
+        )
+
+    declared = (trailer_state.get("declared") or {}).get("sha256")
+    if declared and declared.lower() != attestation["discovery_sha256"].lower():
+        findings.append(
+            Finding(
+                "HIGH",
+                "LLM review",
+                rel(json_path, root),
+                "LLM attestation references a different discovery sha256 than the artifact trailer.",
+                "Re-run discover, update trailer, and re-attest.",
+            )
+        )
+
+    llm_fail = any(f.category == "LLM review" for f in findings)
+    compatibility.append(
+        {
+            "check": "LLM review",
+            "result": "FAIL" if llm_fail else "PASS",
+            "evidence": f"reviewer={attestation['reviewer']}, count={attestation['finding_count']}",
+        }
+    )
+    return llm_findings, attestation
+
+
+def validate(
+    root: Path,
+    phase: str,
+    run_checks: bool,
+    require_llm_review: bool = True,
+    require_trailer: bool = True,
+) -> dict[str, Any]:
     findings: list[Finding] = []
     coverage: list[dict[str, str]] = []
     compatibility: list[dict[str, str]] = []
@@ -506,12 +790,22 @@ def validate(root: Path, phase: str, run_checks: bool) -> dict[str, Any]:
             }
         )
 
+    trailer_state = check_grounding_trailer(
+        root, phase, feature_dir, artifacts, findings, compatibility, require=require_trailer
+    )
+    llm_findings, llm_attestation = check_llm_attestation(
+        root, phase, findings, compatibility, trailer_state, require=require_llm_review
+    )
+
     verdict = verdict_from_findings(findings)
     return {
         "phase": phase,
         "verdict": verdict,
         "feature_resolution": asdict(resolution),
         "findings": finding_dicts(findings),
+        "llm_findings": llm_findings,
+        "llm_attestation": llm_attestation,
+        "grounding_trailer": trailer_state,
         "coverage": coverage,
         "repository_compatibility": compatibility,
         "path_references": path_refs,
@@ -601,6 +895,33 @@ def render_markdown(data: dict[str, Any]) -> str:
     for item in data["executed_commands"]:
         lines.append(f"| {table_cell(item['command'])} | {item['result']} | {table_cell(item['notes'])} |")
 
+    lines.extend(
+        [
+            "",
+            "## LLM Findings",
+            "| ID | Severity | Category | Location | Evidence | Recommendation |",
+            "|----|----------|----------|----------|----------|----------------|",
+        ]
+    )
+    for f in data.get("llm_findings") or []:
+        lines.append(
+            f"| {table_cell(f.get('id', ''))} | {table_cell(f.get('severity', ''))} | {table_cell(f.get('category', ''))} | {table_cell(f.get('location', ''))} | {table_cell(f.get('evidence', ''))} | {table_cell(f.get('recommendation', ''))} |"
+        )
+    if not (data.get("llm_findings") or []):
+        lines.append("| - | - | - | - | No LLM findings recorded. | - |")
+
+    att = data.get("llm_attestation")
+    lines.extend(["", "## LLM Attestation"])
+    if att:
+        lines.append(f"- reviewer: `{table_cell(att.get('reviewer', ''))}`")
+        lines.append(f"- generated_at: `{table_cell(att.get('generated_at', ''))}`")
+        lines.append(f"- finding_count: {att.get('finding_count')}")
+        lines.append(f"- no_issues: {att.get('no_issues')}")
+        lines.append(f"- discovery_sha256: `{str(att.get('discovery_sha256', ''))[:16]}…`")
+        lines.append(f"- signature: `{str(att.get('signature', ''))[:16]}…`")
+    else:
+        lines.append("- (none) — LLM review has not been recorded for this phase.")
+
     lines.extend(["", "## Next Actions", next_actions(data["verdict"], data["phase"]), ""])
     return "\n".join(lines)
 
@@ -612,11 +933,21 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--phase", choices=PHASES)
     parser.add_argument("--root", default=".")
     parser.add_argument("--skip-checks", action="store_true", help="Do not run implement-stage safe project checks.")
+    parser.add_argument("--require-llm-review", dest="require_llm_review", action="store_true", default=True)
+    parser.add_argument("--no-require-llm-review", dest="require_llm_review", action="store_false")
+    parser.add_argument("--require-trailer", dest="require_trailer", action="store_true", default=True)
+    parser.add_argument("--no-require-trailer", dest="require_trailer", action="store_false")
     args = parser.parse_args(list(argv))
 
     root = Path(args.root).resolve()
     phase = resolve_phase(root, args.phase or args.phase_arg)
-    data = validate(root, phase, run_checks=(phase == "implement" and not args.skip_checks))
+    data = validate(
+        root,
+        phase,
+        run_checks=(phase == "implement" and not args.skip_checks),
+        require_llm_review=args.require_llm_review,
+        require_trailer=args.require_trailer,
+    )
     markdown = render_markdown(data)
 
     directory = out_dir(root)

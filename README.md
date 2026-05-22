@@ -172,6 +172,39 @@ It does not install packages, run migrations, deploy, publish, release, or edit 
 
 Feature directory resolution is intentionally conservative: when multiple `specs/<feature>/` directories match and the current branch or artifacts cannot identify one, validation fails instead of guessing by modification time.
 
+## LLM Review Gate (v0.3.0+)
+
+The mechanical validator alone cannot produce a `PASS` verdict. After each
+`validate_artifacts.py` run you must attest LLM-side semantic review:
+
+```bash
+python .specify/extensions/discovery-validation-hooks/scripts/attest_llm_review.py \
+  --phase plan --findings llm-review-plan.json
+
+python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase plan
+```
+
+The second `validate` checks `llm_findings` + `llm_attestation` inside
+`validation-<phase>.json`, verifies the attestation digest, and confirms the
+`discovery_sha256` matches both the `discovery-<phase>.json` and the
+`grounded-by` trailer in the phase artifact.
+
+To use v0.2.x-compatible behavior (mechanical-only gate), pass:
+
+```bash
+python scripts/validate_artifacts.py --phase plan --no-require-llm-review --no-require-trailer
+```
+
+## Grounding Trailer (v0.3.0+)
+
+`discover_context.py` now prints a `grounded-by` trailer line after the report.
+Append it to the end of the phase artifact (`spec.md` / `plan.md` / `tasks.md`):
+
+    <!-- grounded-by: .specify/context-grounding/discovery-<phase>.json sha256=<hex> -->
+
+Without it, validation fails with category `Grounding trailer`. Re-running
+discover regenerates a new sha256; replace the old trailer line each time.
+
 ## Reference Scope
 
 This repository implements the context-grounding extension layer, not the full multi-agent system from the paper.

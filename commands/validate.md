@@ -176,6 +176,42 @@ Use this severity model:
 - `MEDIUM`: quality or maintainability problem
 - `LOW`: minor issue or improvement
 
+## LLM Review (MANDATORY)
+
+The mechanical validator only produces structural findings. You MUST add
+semantic findings (or explicitly attest no_issues with justification) before the
+phase can pass.
+
+1. Run `python .specify/extensions/discovery-validation-hooks/scripts/validate_artifacts.py --phase <phase>` to produce the baseline.
+2. Produce a review file `llm-review-<phase>.json` with this shape:
+
+```json
+{
+  "reviewer": "<agent-name-or-manual:<handle>>",
+  "phase": "<phase>",
+  "discovery_sha256": "<copy from discovery-<phase>.json content_sha256>",
+  "no_issues": false,
+  "justification": "",
+  "findings": [
+    {
+      "id": "LLM-001",
+      "severity": "HIGH",
+      "category": "Semantic",
+      "location": "specs/<feature>/plan.md:42",
+      "evidence": "<quote from artifact and repo evidence>",
+      "recommendation": "<concrete fix>"
+    }
+  ]
+}
+```
+
+3. Call `python .specify/extensions/discovery-validation-hooks/scripts/attest_llm_review.py --phase <phase> --findings llm-review-<phase>.json`.
+4. Re-run `validate_artifacts.py --phase <phase>`. Only then can the verdict be PASS / PASS_WITH_WARNINGS.
+
+If you have genuinely no findings, set `no_issues: true` AND provide a
+`justification` explaining what you checked. An empty `findings` list with
+`no_issues: false` is a CRITICAL failure.
+
 ## Verdict
 
 - `FAIL`: Any `CRITICAL` finding, any blocking `HIGH` finding, or multiple `HIGH` findings that block the next phase.
